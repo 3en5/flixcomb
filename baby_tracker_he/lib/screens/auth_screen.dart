@@ -88,6 +88,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 textDirection: TextDirection.rtl,
                 decoration: const InputDecoration(labelText: 'אימייל'),
                 keyboardType: TextInputType.emailAddress,
+                onSubmitted: (_) => _signIn(),
               ),
               const SizedBox(height: 16),
               TextField(
@@ -101,6 +102,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   ),
                 ),
                 obscureText: !_showPassword,
+                onSubmitted: (_) => _signIn(),
               ),
               const SizedBox(height: 24),
               if (_error != null) ...[

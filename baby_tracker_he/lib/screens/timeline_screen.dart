@@ -24,9 +24,14 @@ class _TimelineScreenState extends State<TimelineScreen> {
 
   Future<void> fetchData() async {
     setState(() => loading = true);
+    final now = DateTime.now();
+    final startOfDay = DateTime(now.year, now.month, now.day);
+    final endOfDay = startOfDay.add(const Duration(days: 1));
     final acts = await Supabase.instance.client
         .from('activities')
         .select()
+        .gte('time', startOfDay.toIso8601String())
+        .lt('time', endOfDay.toIso8601String())
         .order('time', ascending: false);
     final babies = await Supabase.instance.client
         .from('babies')
@@ -69,32 +74,52 @@ class _TimelineScreenState extends State<TimelineScreen> {
                                 icon: const Icon(Icons.flag),
                                 tooltip: 'סיים פעילות',
                                 onPressed: () async {
-                                  DateTime now = DateTime.now();
-                                  DateTime initial = now;
-                                  DateTime? pickedDate;
-                                  if (a.time.day != now.day || a.time.month != now.month || a.time.year != now.year) {
-                                    pickedDate = await showDatePicker(
-                                      context: context,
-                                      initialDate: now,
-                                      firstDate: a.time,
-                                      lastDate: now,
-                                    );
-                                    if (pickedDate == null) return;
-                                  }
-                                  final pickedTime = await showTimePicker(
+                                  int hours = 0;
+                                  int minutes = 0;
+                                  final res = await showDialog<List<int>>(
                                     context: context,
-                                    initialTime: TimeOfDay.fromDateTime(now),
+                                    builder: (ctx) {
+                                      return AlertDialog(
+                                        title: const Text('כמה זמן עבר מאז תחילת הפעילות?'),
+                                        content: Row(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            SizedBox(
+                                              width: 60,
+                                              child: TextField(
+                                                keyboardType: TextInputType.number,
+                                                decoration: const InputDecoration(labelText: 'שעות'),
+                                                onChanged: (v) => hours = int.tryParse(v) ?? 0,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 16),
+                                            SizedBox(
+                                              width: 60,
+                                              child: TextField(
+                                                keyboardType: TextInputType.number,
+                                                decoration: const InputDecoration(labelText: 'דקות'),
+                                                onChanged: (v) => minutes = int.tryParse(v) ?? 0,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () => Navigator.pop(ctx),
+                                            child: const Text('ביטול'),
+                                          ),
+                                          ElevatedButton(
+                                            onPressed: () => Navigator.pop(ctx, [hours, minutes]),
+                                            child: const Text('סיים'),
+                                          ),
+                                        ],
+                                      );
+                                    },
                                   );
-                                  if (pickedTime == null) return;
-                                  final endDate = DateTime(
-                                    pickedDate?.year ?? now.year,
-                                    pickedDate?.month ?? now.month,
-                                    pickedDate?.day ?? now.day,
-                                    pickedTime.hour,
-                                    pickedTime.minute,
-                                  );
+                                  if (res == null) return;
+                                  final endDate = a.time.add(Duration(hours: res[0], minutes: res[1]));
                                   if (endDate.isBefore(a.time)) {
-                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('זמן הסיום לא יכול להיות לפני זמן ההתחלה')));
+                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('משך הזמן חייב להיות חיובי')));
                                     return;
                                   }
                                   final newDetails = Map<String, dynamic>.from(a.details ?? {});
@@ -164,7 +189,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
 
   IconData _iconForType(String type) {
     switch (type) {
-      case 'feeding': return Icons.local_drink;
+      case 'feeding': return Icons.emoji_food_beverage;
       case 'sleep': return Icons.bedtime;
       case 'walk': return Icons.stroller;
       case 'mood': return Icons.emoji_emotions;
