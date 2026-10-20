@@ -108,6 +108,48 @@ def cmd_plan(db: DB, args):
         print(f"  {b.title}{orig}" + (f" ({b.year})" if b.year else ""))
 
 
+def cmd_probe(db: DB, args):
+    from pathlib import Path
+
+    from playwright.sync_api import sync_playwright
+
+    from .netflix import run_probe
+
+    if args.titles:
+        with open(args.titles, encoding="utf-8") as f:
+            titles = [line.strip() for line in f if line.strip()]
+    else:
+        titles = [t["title"] for t in db.available_titles()]
+    titles = titles[:args.count]
+    if not titles:
+        sys.exit("no titles: run sync first, or pass --titles FILE")
+
+    print(f"Probe will try to restrict {len(titles)} titles, saving every {args.batch_size}.")
+    print("Use a TEST profile only: everything added here will be hidden on it.\n")
+
+    def wait_for_user(msg):
+        input(f"\n{msg}\nPress Enter here when ready... ")
+
+    out_dir = Path(args.out)
+    with sync_playwright() as p:
+        ctx = p.chromium.launch_persistent_context(
+            args.browser_profile, headless=False, locale="he-IL",
+            executable_path=os.environ.get("FLIXCOMB_CHROMIUM") or None)
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        page.goto(args.url)
+        report = run_probe(page, titles, out_dir, wait_for_user, batch_size=args.batch_size,
+                           delay=args.delay, input_selector=args.input_selector)
+        ctx.close()
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "report.json").write_text(
+        json.dumps(asdict(report), ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"\nattempted {report.attempted}, added {report.added}, "
+          f"found after reload {report.persisted}")
+    print(f"stopped: {report.stopped_reason or 'no, all batches completed'}")
+    print(f"details in {out_dir}/report.json")
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="flixcomb", description="Allowlist filter for Netflix profiles")
     sub = p.add_subparsers(dest="command", required=True)
@@ -143,6 +185,18 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--safety-tiers", type=int, default=1,
                    help="also block titles this many tiers above the cap (default: 1)")
     s.set_defaults(func=cmd_plan)
+
+    s = sub.add_parser("probe", help="test how many title restrictions Netflix accepts")
+    s.add_argument("--titles", help="file with one title per line (default: catalog titles)")
+    s.add_argument("--count", type=int, default=500, help="titles to try (default: 500)")
+    s.add_argument("--batch-size", type=int, default=50)
+    s.add_argument("--delay", type=float, default=1.0, help="seconds between titles")
+    s.add_argument("--url", default="https://www.netflix.com/account")
+    s.add_argument("--browser-profile", default=".flixcomb-browser",
+                   help="browser data folder; keeps you logged in between runs")
+    s.add_argument("--input-selector", help="CSS selector of the title search box, if not found")
+    s.add_argument("--out", default="probe-output")
+    s.set_defaults(func=cmd_probe)
     return p
 
 
